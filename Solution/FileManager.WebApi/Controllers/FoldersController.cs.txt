@@ -1,0 +1,52 @@
+using FileManager.Infrastructure.Models;
+using FileManager.Services;
+using Microsoft.AspNetCore.Mvc;
+
+namespace FileManager.WebApi.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class FoldersController : ControllerBase
+    {
+        private readonly ICrudServiceAsync<Folder> _service;
+
+        public FoldersController(ICrudServiceAsync<Folder> service)
+        {
+            _service = service;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
+        {
+            var folders = await _service.ReadAllAsync();
+            return Ok(folders);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> Get(Guid id)
+        {
+            var folder = await _service.ReadAsync(id);
+            if (folder == null) return NotFound();
+            return Ok(folder);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> Create(Folder folder)
+        {
+            await _service.CreateAsync(folder);
+            await _service.SaveAsync();
+            return CreatedAtAction(nameof(Get), new { id = folder.Id }, folder);
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Delete(Guid id)
+        {
+            var folder = await _service.ReadAsync(id);
+            if (folder == null) return NotFound();
+
+            await _service.RemoveAsync(folder);
+            await _service.SaveAsync();
+            return NoContent();
+        }
+    }
+}
