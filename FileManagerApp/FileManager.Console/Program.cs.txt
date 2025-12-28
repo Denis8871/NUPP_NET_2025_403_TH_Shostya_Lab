@@ -1,0 +1,87 @@
+using System;
+using FileManagerLib;
+
+class Program
+{
+    static void Main()
+    {
+        IFileManager fileManager = new FileManager();
+
+        Console.WriteLine("Файловий менеджер");
+        Console.WriteLine("Команди: create, read, update, delete, list, exit");
+
+        while (true)
+        {
+            Console.Write("\n> ");
+            var command = Console.ReadLine()?.ToLower();
+
+            try
+            {
+                switch (command)
+                {
+                    case "create":
+                        Console.Write("Шлях до файлу: ");
+                        var createPath = Console.ReadLine();
+
+                        Console.Write("Вміст файлу: ");
+                        var createContent = Console.ReadLine();
+
+                        fileManager.Create(createPath!, createContent!);
+                        Console.WriteLine("Файл створено");
+                        break;
+
+                    case "read":
+                        Console.Write("Шлях до файлу: ");
+                        var readPath = Console.ReadLine();
+
+                        var content = fileManager.Read(readPath!);
+                        Console.WriteLine("\nВміст файлу:");
+                        Console.WriteLine(content);
+                        break;
+
+                    case "update":
+                        Console.Write("Шлях до файлу: ");
+                        var updatePath = Console.ReadLine();
+
+                        Console.Write("Новий вміст: ");
+                        var updateContent = Console.ReadLine();
+
+                        fileManager.Update(updatePath!, updateContent!);
+                        Console.WriteLine("Файл оновлено");
+                        break;
+
+                    case "delete":
+                        Console.Write("Шлях до файлу: ");
+                        var deletePath = Console.ReadLine();
+
+                        fileManager.Delete(deletePath!);
+                        Console.WriteLine("Файл видалено");
+                        break;
+
+                    case "list":
+                        Console.Write("Шлях до каталогу: ");
+                        var directory = Console.ReadLine();
+
+                        var files = fileManager.ListFiles(directory!);
+                        Console.WriteLine("\nФайли:");
+                        foreach (var file in files)
+                        {
+                            Console.WriteLine(file);
+                        }
+                        break;
+
+                    case "exit":
+                        return;
+
+                    default:
+                        Console.WriteLine("Невідома команда");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Помилка: {ex.Message}");
+            }
+        }
+    }
+}
