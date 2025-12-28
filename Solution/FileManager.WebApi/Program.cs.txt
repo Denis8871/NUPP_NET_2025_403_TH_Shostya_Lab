@@ -1,0 +1,36 @@
+using FileManager.Infrastructure.Data;
+using FileManager.Infrastructure.Repositories;
+using FileManager.Services;
+using Microsoft.EntityFrameworkCore;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// DB
+builder.Services.AddDbContext<FileManagerContext>(options =>
+    options.UseSqlite("Data Source=filemanager.db"));
+
+// Repositories
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<TextFileRepository>();
+builder.Services.AddScoped<FolderRepository>();
+
+// Services
+builder.Services.AddScoped(typeof(ICrudServiceAsync<>), typeof(CrudServiceAsync<>));
+
+// Controllers + Swagger
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+var app = builder.Build();
+
+// Swagger
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.MapControllers();
+app.Run();
