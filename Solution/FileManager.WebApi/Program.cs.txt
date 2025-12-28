@@ -1,0 +1,153 @@
+using System.Text;
+using FileManager.Infrastructure.Data;
+using FileManager.Infrastructure.Identity;
+using FileManager.Infrastructure.Repositories;
+using FileManager.Services;
+using FileManager.WebApi.Authorization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// DB
+builder.Services.AddDbContext<FileManagerContext>(options =>
+{
+    options.UseSqlite(builder.Configuration.GetConnectionString("Default"));
+});
+
+// Identity
+builder.Services
+    .AddIdentity<ApplicationUser, IdentityRole>(options =>
+    {
+        options.User.RequireUniqueEmail = true;
+        options.Password.RequireDigit = true;
+        options.Password.RequireUppercase = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequiredLength = 6;
+    })
+    .AddEntityFrameworkStores<FileManagerContext>()
+    .AddDefaultTokenProviders();
+
+// JWT
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var key = jwtSection["Key"]!;
+var issuer = jwtSection["Issuer"]!;
+var audience = jwtSection["Audience"]!;
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)),
+            ClockSkew = TimeSpan.FromSeconds(10)
+        };
+    });
+
+builder.Services.AddAuthorization();
+
+// Repos + Services (з Lab3)
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<TextFileRepository>();
+builder.Services.AddScoped<FolderRepository>();
+builder.Services.AddScoped(typeof(ICrudServiceAsync<>), typeof(CrudServiceAsync<>));
+
+// Controllers
+builder.Services.AddControllers();
+
+// Swagger + Bearer button
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "FileManager.WebApi", Version = "v1" });
+
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Введіть JWT токен: Bearer {your_token}"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+var app = builder.Build();
+
+// Міграції / БД (можна так для лаби, але міграції все одно роби через dotnet ef)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<FileManagerContext>();
+    await db.Database.MigrateAsync();
+
+    // Seed roles + admin user
+    await SeedRolesAndAdminAsync(scope.ServiceProvider, builder.Configuration);
+}
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapControllers();
+app.Run();
+
+static async Task SeedRolesAndAdminAsync(IServiceProvider sp, IConfiguration config)
+{
+    var roleManager = sp.GetRequiredService<RoleManager<IdentityRole>>();
+    var userManager = sp.GetRequiredService<UserManager<ApplicationUser>>();
+
+    string[] roles = { Roles.Admin, Roles.User, Roles.Guest };
+
+    foreach (var role in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+            await roleManager.CreateAsync(new IdentityRole(role));
+    }
+
+    // Адмін (для тестів у Swagger)
+    var adminEmail = "admin@local.test";
+    var adminPassword = "Admin123!";
+
+    var admin = await userManager.FindByEmailAsync(adminEmail);
+    if (admin == null)
+    {
+        admin = new ApplicationUser { UserName = adminEmail, Email = adminEmail };
+        var created = await userManager.CreateAsync(admin, adminPassword);
+        if (created.Succeeded)
+            await userManager.AddToRoleAsync(admin, Roles.Admin);
+    }
+    else
+    {
+        if (!await userManager.IsInRoleAsync(admin, Roles.Admin))
+            await userManager.AddToRoleAsync(admin, Roles.Admin);
+    }
+}

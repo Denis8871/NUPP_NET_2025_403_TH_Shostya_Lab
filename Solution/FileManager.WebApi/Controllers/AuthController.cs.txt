@@ -1,0 +1,118 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using FileManager.Infrastructure.Identity;
+using FileManager.WebApi.Authorization;
+using FileManager.WebApi.DTOs;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
+
+namespace FileManager.WebApi.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class AuthController : ControllerBase
+    {
+        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly RoleManager<IdentityRole> _roleManager;
+        private readonly IConfiguration _config;
+
+        public AuthController(
+            UserManager<ApplicationUser> userManager,
+            RoleManager<IdentityRole> roleManager,
+            IConfiguration config)
+        {
+            _userManager = userManager;
+            _roleManager = roleManager;
+            _config = config;
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register(RegisterRequest request)
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
+            var role = string.IsNullOrWhiteSpace(request.Role) ? Roles.User : request.Role;
+
+            if (!await _roleManager.RoleExistsAsync(role))
+                return BadRequest($"Role '{role}' does not exist.");
+
+            var existing = await _userManager.FindByEmailAsync(email);
+            if (existing != null)
+                return BadRequest("User already exists.");
+
+            var user = new ApplicationUser
+            {
+                UserName = email,
+                Email = email
+            };
+
+            var result = await _userManager.CreateAsync(user, request.Password);
+            if (!result.Succeeded)
+                return BadRequest(result.Errors);
+
+            await _userManager.AddToRoleAsync(user, role);
+
+            return Ok(new { message = "Registered successfully", email, role });
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(LoginRequest request)
+        {
+            var email = request.Email.Trim().ToLowerInvariant();
+            var user = await _userManager.FindByEmailAsync(email);
+
+            if (user == null)
+                return Unauthorized("Invalid credentials.");
+
+            var ok = await _userManager.CheckPasswordAsync(user, request.Password);
+            if (!ok)
+                return Unauthorized("Invalid credentials.");
+
+            var roles = await _userManager.GetRolesAsync(user);
+            var role = roles.FirstOrDefault() ?? Roles.User;
+
+            var response = CreateJwt(user, role);
+            return Ok(response);
+        }
+
+        private AuthResponse CreateJwt(ApplicationUser user, string role)
+        {
+            var jwt = _config.GetSection("Jwt");
+            var key = jwt["Key"]!;
+            var issuer = jwt["Issuer"]!;
+            var audience = jwt["Audience"]!;
+            var expiresMinutes = int.Parse(jwt["ExpiresMinutes"]!);
+
+            var claims = new List<Claim>
+            {
+                new(JwtRegisteredClaimNames.Sub, user.Id),
+                new(JwtRegisteredClaimNames.Email, user.Email ?? ""),
+                new(ClaimTypes.NameIdentifier, user.Id),
+                new(ClaimTypes.Name, user.UserName ?? ""),
+                new(ClaimTypes.Role, role)
+            };
+
+            var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+            var creds = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+
+            var expires = DateTime.UtcNow.AddMinutes(expiresMinutes);
+
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
+                claims: claims,
+                expires: expires,
+                signingCredentials: creds
+            );
+
+            return new AuthResponse
+            {
+                Token = new JwtSecurityTokenHandler().WriteToken(token),
+                ExpiresAtUtc = expires,
+                Email = user.Email ?? "",
+                Role = role
+            };
+        }
+    }
+}

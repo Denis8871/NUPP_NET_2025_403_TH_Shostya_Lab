@@ -1,0 +1,38 @@
+using FileManager.Infrastructure.Identity;
+using FileManager.Infrastructure.Models;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+
+namespace FileManager.Infrastructure.Data
+{
+    public class FileManagerContext : IdentityDbContext<ApplicationUser>
+    {
+        public DbSet<Folder> Folders => Set<Folder>();
+        public DbSet<TextFile> TextFiles => Set<TextFile>();
+
+        public FileManagerContext(DbContextOptions<FileManagerContext> options) : base(options) { }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<Folder>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            });
+
+            modelBuilder.Entity<TextFile>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+                entity.Property(x => x.Extension).IsRequired().HasMaxLength(20);
+
+                entity.HasOne(x => x.Folder)
+                      .WithMany(f => f.Files)
+                      .HasForeignKey(x => x.FolderId)
+                      .OnDelete(DeleteBehavior.Cascade);
+            });
+        }
+    }
+}
